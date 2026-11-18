@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f6f7f3">
+<title>出勤簿｜手機上下班打卡</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top"><div class="bar"><a class="brand" href="/" aria-label="出勤簿首頁"><span class="brandmark" aria-hidden="true">✓</span>出勤簿</a><div class="identity" id="identity" hidden><span id="identity-name"></span><button id="logout" class="link">登出</button></div></div></header>
+<main>
+<div id="notice" role="status" aria-live="polite"></div>
+<div id="loading" class="quiet">正在確認登入狀態…</div>
+<button id="retry" class="soft" hidden>重新連線</button>
+<section id="login-panel" class="login panel" hidden>
+<div class="accent"></div><h1>員工登入</h1><p class="intro">登入後，即可使用手機記錄上下班時間。</p>
+<form id="login-form">
+<label for="account">員工帳號</label><input id="account" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="48" required>
+<label for="password">密碼</label><input id="password" type="password" autocomplete="current-password" maxlength="256" required>
+<label class="check"><input type="checkbox" id="remember" checked>在這台裝置保持登入 30 天</label>
+<p class="hint">共用裝置請取消勾選，使用完畢後登出。</p>
+<button class="primary" id="login-submit">登入</button>
+</form></section>
+<div id="workspace" hidden>
+<nav class="tabs" aria-label="主要功能"><button id="tab-clock" aria-current="page">上下班打卡</button><button id="tab-records">出勤紀錄</button></nav>
+<section id="clock-panel"><div class="section-title"><h1>上下班打卡</h1><p class="quiet" id="today"></p></div>
+<div class="clockbox">
+<div class="clock-top"><span>台灣時間</span><span class="status" id="status"></span></div>
+<div class="clock" id="clock">--:--</div>
+<p id="context"></p><button class="punch" id="punch" disabled>讀取中</button>
+</div>
+<div class="recent panel"><h2>最近班次</h2><div class="pair"><div><span>上班時間</span><strong id="last-in">—</strong></div><div><span>下班時間</span><strong id="last-out">—</strong></div></div></div>
+</section>
+<section id="records-panel" hidden>
+<div class="section-title"><h1>出勤紀錄</h1><p class="quiet">依上班日期查詢，時間以台灣為準。</p></div>
+<form class="filters panel" id="filters"><label id="scope-label" hidden>查詢範圍<select id="scope"><option value="mine">我的紀錄</option><option value="all">全體員工</option></select></label>
+<div class="dates"><label>開始日期<input type="date" id="from" required></label><label>結束日期<input type="date" id="to" required></label></div>
+<div class="filter-actions"><button class="primary">查詢</button><button id="export" type="button" class="soft">匯出 Excel</button></div></form>
+<div class="results" id="results" aria-live="polite"></div>
+<div class="pager" id="pager" hidden><button class="soft" id="prev">上一頁</button><span id="page"></span><button class="soft" id="next">下一頁</button></div>
+</section></div>
+<noscript>請開啟瀏覽器的 JavaScript 以使用打卡功能。</noscript>
+</main></body></html>
