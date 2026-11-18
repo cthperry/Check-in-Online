@@ -1,13 +1,13 @@
-"""Vercel 的 WSGI 入口。"""
+"""Vercel �� WSGI �J�f�C"""
 import os
 from functools import lru_cache
 
-from attendance.web import application
+from attendance.web import application as make_attendance_app
 
 
 @lru_cache(maxsize=8)
-def handler(origin):
-    return application(os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL"), origin)
+def get_app(origin):
+    return make_attendance_app(os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL"), origin)
 
 
 def app(environ, start_response):
@@ -18,4 +18,5 @@ def app(environ, start_response):
         origin = "https://" + host
     if not origin:
         origin = "https://" + (os.environ.get("VERCEL_PROJECT_PRODUCTION_URL") or "checkinonline.vercel.app")
-    return handler(origin)(environ, start_response)
+    return get_app(origin)(environ, start_response)
+
