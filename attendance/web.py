@@ -56,7 +56,8 @@ def application(path, origin, clock=time.time):
             or (parsed.scheme == "http" and parsed.hostname not in {"localhost","127.0.0.1","::1"})):
         raise ValueError("對外部署請設定完整 HTTPS 網址，本機測試可使用回送位址。")
     flags = "; Path=/; HttpOnly; SameSite=Lax" + ("; Secure" if parsed.scheme == "https" else "")
-    initialize(path)
+    if path:
+        initialize(path)
 
     def dispatch(env):
         method, route = env["REQUEST_METHOD"],env.get("PATH_INFO","")
@@ -72,6 +73,8 @@ def application(path, origin, clock=time.time):
         body = read_body(env, origin) if method == "POST" else {}
         token = session_token(env)
         now = int(clock())
+        if not path:
+            raise Problem(503, "出勤資料庫尚未連接，請聯絡管理員。")
         with database(path) as con:
             if route == "/api/login":
                 if not all(isinstance(body.get(k),str) for k in ("account","password")) or type(body.get("remember")) is not bool:
@@ -88,7 +91,7 @@ def application(path, origin, clock=time.time):
                 stamp = punch(con,token,body.get("action"),body.get("revision"),body["key"],clock)
                 return json_response({"stamp":stamp})
             # 同一個讀取快照包含員工狀態、班次與匯出附表。
-            con.execute("BEGIN")
+            con.execute("BEGIN" if isinstance(con, sqlite3.Connection) else "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
             staff = current_staff(con,token,now)
             if route == "/api/state":
                 opened = open_shift(con,staff["id"])

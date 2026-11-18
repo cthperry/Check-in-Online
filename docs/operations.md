@@ -41,3 +41,6 @@ python -c "import os,sqlite3,uuid; source=sqlite3.connect('file:'+os.environ.get
 ```
 
 還原演練應在隔離環境，用新路徑載入備份，核對員工數、班次數、最新時間與 Excel。正式還原前停止服務並另存現況；使用新的資料庫路徑以免混用原處的 WAL 檔。還原後以受授權維運者身分清除還原資料庫的 sessions，再開放員工重新登入。
+
+## Vercel 正式部署
+在 checkinonline 專案連接專用 Neon PostgreSQL，套用 Production 環境並重新部署。首次啟動會建立資料表。本機管理指令可透過系統環境變數 DATABASE_URL 連到同一資料庫，再依前述 add-user 流程建立帳號。

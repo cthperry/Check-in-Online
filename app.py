@@ -13,7 +13,7 @@ from attendance.web import application
 
 def main():
     parser = argparse.ArgumentParser(description="手機上下班打卡管理")
-    parser.add_argument("--db", default=os.getenv("ATTENDANCE_DB","data/attendance.sqlite3"))
+    parser.add_argument("--db", default=os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("ATTENDANCE_DB","data/attendance.sqlite3"))
     commands = parser.add_subparsers(dest="action", required=True)
     serve = commands.add_parser("serve", help="啟動服務")
     serve.add_argument("--port",type=int, default=int(os.getenv("PORT","8000")))

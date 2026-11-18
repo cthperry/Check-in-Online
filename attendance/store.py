@@ -56,6 +56,11 @@ class Problem(Exception):
 
 @contextmanager
 def database(path):
+    if str(path).startswith(("postgres://", "postgresql://")):
+        from .postgres import connect
+        with connect(path) as con:
+            yield con
+        return
     con = sqlite3.connect(path, isolation_level=None, timeout=8)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
@@ -67,7 +72,11 @@ def database(path):
 
 @contextmanager
 def transaction(con):
-    con.execute("BEGIN IMMEDIATE")
+    if isinstance(con, sqlite3.Connection):
+        con.execute("BEGIN IMMEDIATE")
+    else:
+        from .postgres import begin
+        begin(con)
     try:
         yield
         con.commit()
@@ -77,6 +86,10 @@ def transaction(con):
 
 
 def initialize(path):
+    if str(path).startswith(("postgres://", "postgresql://")):
+        from .postgres import initialize as initialize_postgres
+        initialize_postgres(path, SCHEMA)
+        return
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with database(path) as con:
         con.execute("PRAGMA journal_mode=WAL")
@@ -115,14 +128,14 @@ def login(con, account, password, remember, source, now):
         con.execute("DELETE FROM login_events WHERE at < ?", (now - 90 * DAY,))
         limiting = con.execute("""SELECT
           (SELECT count(*) FROM login_events WHERE account=? AND at>? AND success=0) >= 8
-          OR (SELECT count(*) FROM login_events WHERE source=? AND at>? AND success=0) >= 120""",
-                               (account, now - 600, source, now - 600)).fetchone()[0]
+          OR (SELECT count(*) FROM login_events WHERE source=? AND at>? AND success=0) >= 120 AS limited""",
+                               (account, now - 600, source, now - 600)).fetchone()["limited"]
         if limiting:
             raise Problem(429, "登入嘗試次數過多，請稍後再試。")
         row = con.execute("SELECT * FROM staff WHERE account=?", (account,)).fetchone()
         # 先保留失敗紀錄，使同時送達的嘗試也計入限制。
-        event = con.execute("INSERT INTO login_events(account,at,source,success) VALUES(?,?,?,0)",
-                            (account, now, source)).lastrowid
+        event = con.execute("INSERT INTO login_events(account,at,source,success) VALUES(?,?,?,0) RETURNING id",
+                            (account, now, source)).fetchone()["id"]
     stored = row["password_hash"] if row else "00"*16 + "." + "00"*32
     salt, expected = stored.split(".")
     valid = hmac.compare_digest(password_digest(password, bytes.fromhex(salt)), bytes.fromhex(expected))
