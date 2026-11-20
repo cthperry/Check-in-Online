@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS corrections (
  operator TEXT NOT NULL, recorded INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS corrections_shift ON corrections(shift_id);
+CREATE TABLE IF NOT EXISTS shift_edits (
+ id INTEGER PRIMARY KEY, shift_id INTEGER NOT NULL REFERENCES shifts(id),
+ prior_start INTEGER NOT NULL, prior_end INTEGER, new_start INTEGER NOT NULL, new_end INTEGER,
+ reason TEXT NOT NULL, operator TEXT NOT NULL, recorded INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS shift_edits_shift ON shift_edits(shift_id);
 """
 
 class Problem(Exception):
@@ -213,7 +219,8 @@ def records(con, staff, start, end, scope, page=None):
     if scope == "all" and staff["role"] != "admin":
         raise Problem(403, "此帳號只能查詢個人紀錄。")
     sql = """SELECT t.id,s.account,s.name,t.started,t.ended,
-        EXISTS(SELECT 1 FROM corrections c WHERE c.shift_id=t.id) corrected
+        (EXISTS(SELECT 1 FROM corrections c WHERE c.shift_id=t.id)
+         OR EXISTS(SELECT 1 FROM shift_edits e WHERE e.shift_id=t.id)) corrected
         FROM shifts t JOIN staff s ON s.id=t.staff_id WHERE t.started>=? AND t.started<?"""
     args = [low,high]
     if scope == "mine":
@@ -238,4 +245,56 @@ def close_missing(con, shift_id, ended, reason, operator, now):
         con.execute("INSERT INTO corrections(shift_id,prior_end,new_end,reason,operator,recorded) VALUES(?,NULL,?,?,?,?)",
                     (shift_id, ended, reason.strip(), operator.strip(), now))
         con.execute("UPDATE shifts SET ended=? WHERE id=?", (ended,shift_id))
+        con.execute("UPDATE staff SET revision=revision+1 WHERE id=?", (row["staff_id"],))
+
+
+def edit_time(value):
+    try:
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2})?", value):
+            raise ValueError
+        return int(datetime.fromisoformat(value).replace(tzinfo=TAIPEI).timestamp())
+    except (ValueError, OverflowError, OSError):
+        raise Problem(400, "請輸入有效的台灣日期與時間。") from None
+
+
+def edit_shift(con, token, body, clock=time.time):
+    with transaction(con):
+        now = int(clock())
+        admin = current_staff(con, token, now)
+        if admin["role"] != "admin":
+            raise Problem(403, "只有管理員可以編輯出勤紀錄。")
+        shift_id, prior_start, prior_end = (body.get(key) for key in ("id", "priorStart", "priorEnd"))
+        reason = body.get("reason")
+        if (type(shift_id) is not int or not 0 < shift_id <= 2147483647
+                or type(prior_start) is not int or "priorEnd" not in body
+                or (prior_end is not None and type(prior_end) is not int)
+                or not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 250
+                or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]", reason)):
+            raise Problem(400, "請確認班次資料並填寫 250 字以內的編輯原因。")
+        start = edit_time(body.get("start"))
+        end = None if body.get("end") == "" else edit_time(body.get("end"))
+        if start < 0 or start > min(now, 2147483647) or (end is not None and not start <= end <= min(now, 2147483647)):
+            raise Problem(400, "上下班時間須在現在或之前，且下班時間不得早於上班時間。")
+        row = con.execute("SELECT staff_id,started,ended FROM shifts WHERE id=?", (shift_id,)).fetchone()
+        if row is None:
+            raise Problem(404, "找不到這筆出勤紀錄。")
+        if (row["started"], row["ended"]) != (prior_start, prior_end):
+            raise Problem(409, "這筆紀錄已更新，請重新查詢後再編輯。")
+        if (start, end) == (prior_start, prior_end):
+            raise Problem(400, "請先修改要調整的時間。")
+
+        if end is None and con.execute(
+                "SELECT 1 FROM shifts WHERE staff_id=? AND id<>? AND ended IS NULL",
+                (row["staff_id"], shift_id)).fetchone():
+            raise Problem(409, "此員工已有另一個待下班班次，請填寫下班時間。")
+        if con.execute("""SELECT 1 FROM shifts WHERE staff_id=? AND id<>? AND started<?
+                          AND (ended IS NULL OR ended>?) LIMIT 1""",
+                       (row["staff_id"], shift_id, end if end is not None else now + 1, start)).fetchone():
+            raise Problem(409, "修改後的時間與此員工的其他班次重疊。")
+
+        con.execute("""INSERT INTO shift_edits
+            (shift_id,prior_start,prior_end,new_start,new_end,reason,operator,recorded)
+            VALUES(?,?,?,?,?,?,?,?)""",
+                    (shift_id, prior_start, prior_end, start, end, reason.strip(), admin["account"], now))
+        con.execute("UPDATE shifts SET started=?, ended=? WHERE id=?", (start, end, shift_id))
         con.execute("UPDATE staff SET revision=revision+1 WHERE id=?", (row["staff_id"],))

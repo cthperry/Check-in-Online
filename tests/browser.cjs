@@ -74,6 +74,18 @@ async function main() {
 
     await phone.getByRole("button",{name:"查詢",exact:true}).click();
     await phone.getByText("已下班",{exact:true}).waitFor();
+    await phone.getByRole("button",{name:/^編輯/}).click();
+    const dialog = phone.getByRole("dialog",{name:"編輯出勤紀錄"});
+    await dialog.waitFor();
+    await checkWidth(phone);
+    assert(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth));
+    await capture(phone,"mobile-edit.png");
+    await dialog.getByLabel("下班時間（台灣）").fill("");
+    await dialog.getByLabel("更正原因").fill("測試版更正");
+    await dialog.getByRole("button",{name:"儲存變更"}).click();
+    await dialog.waitFor({state:"hidden"});
+    await phone.getByText("已儲存出勤紀錄變更。",{exact:true}).waitFor();
+    await phone.getByText("待下班",{exact:true}).waitFor();
     await phone.getByRole("button",{name:"登出",exact:true}).click();
     await phone.locator("#login-panel").waitFor();
     await phone.reload(); await phone.locator("#login-panel").waitFor();

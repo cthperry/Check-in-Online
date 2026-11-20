@@ -7,6 +7,7 @@ const timeText = (stamp) => asDate(stamp).toLocaleTimeString("zh-TW", {timeZone:
 const stampText = (stamp) => stamp == null ? "—" : isoDate(stamp) + " " + timeText(stamp);
 let state = null, anchor = 0, busy = false, ready = false, stateVersion = 0;
 let page = 1, lastQuery = "", recordVersion = 0;
+let editing = null;
 
 function tell(message = "", error = false) {
   $("notice").textContent = message;
@@ -15,6 +16,7 @@ function tell(message = "", error = false) {
 function signedOut() {
   ++stateVersion; ++recordVersion;
   state = null; ready = false; lastQuery = ""; page = 1;
+  closeEditor();
   $("results").replaceChildren(); $("pager").hidden = true;
   $("scope").value = "mine"; $("from").value = ""; $("to").value = "";
   $("workspace").hidden = true; $("identity").hidden = true; $("loading").hidden = true;
@@ -66,6 +68,7 @@ async function refresh() {
     const value = await (await request("/api/state")).json();
     if (version !== stateVersion) return false;
     if (state && state.user.id !== value.user.id) {
+      closeEditor();
       ++recordVersion; lastQuery = ""; $("results").replaceChildren(); $("pager").hidden = true;
       $("scope").value = "mine"; chooseTab("clock");
     }
@@ -128,14 +131,79 @@ function element(tag, text, cls) {
 }
 function recordCard(row) {
   const box = element("article","","record"), head = element("div","","record-head");
-  head.append(element("strong",isoDate(row.started)+"　"+row.name),element("span",row.ended == null ? "待下班" : row.corrected ? "已補登" : "已下班","tag"));
+  head.append(element("strong",isoDate(row.started)+"　"+row.name),element("span",row.ended == null ? "待下班" : row.corrected ? "已更正" : "已下班","tag"));
   const times = element("dl","");
   for (const [title,stamp] of [["上班",row.started],["下班",row.ended]]) {
     const cell = element("div","");
     cell.append(element("dt",title),element("dd",stampText(stamp))); times.append(cell);
   }
-  box.append(head,times); return box;
+  box.append(head,times);
+  if (state?.user.role === "admin") {
+    const actions = element("div","","record-edit");
+    const button = element("button","編輯","soft");
+    button.type = "button";
+    button.setAttribute("aria-label","編輯 "+row.name+" "+stampText(row.started));
+    button.onclick = () => openEditor(row);
+    actions.append(button); box.append(actions);
+  }
+  return box;
 }
+const formTime = (stamp) => stamp == null ? "" : isoDate(stamp)+"T"+timeText(stamp);
+
+function closeEditor() {
+  editing = null;
+  if ($("edit-dialog").open) $("edit-dialog").close();
+  $("edit-form").reset();
+  $("edit-person").textContent = "";
+  $("edit-error").textContent = "";
+}
+function openEditor(row) {
+  editing = row;
+  $("edit-person").textContent = row.name+"（"+row.account+"）";
+  $("edit-start").value = formTime(row.started);
+  $("edit-end").value = formTime(row.ended);
+  $("edit-dialog").showModal();
+}
+$("edit-cancel").onclick = closeEditor;
+$("edit-dialog").addEventListener("cancel",event => {
+  event.preventDefault();
+  if (!$("edit-save").disabled) closeEditor();
+});
+$("edit-form").onsubmit = async event => {
+  event.preventDefault();
+  const row = editing;
+  if (!row) return;
+  const reason = $("edit-reason").value.trim();
+  $("edit-error").textContent = "";
+  if (!reason) {
+    $("edit-error").textContent = "請填寫更正原因。";
+    $("edit-reason").focus();
+    return;
+  }
+  const start = $("edit-start").value;
+  $("edit-cancel").disabled = $("edit-save").disabled = true;
+  try {
+    await request("/api/records/edit",{id:row.id,priorStart:row.started,priorEnd:row.ended,
+      start,end:$("edit-end").value,reason});
+    closeEditor();
+    if (await refresh()) {
+      const range = new URLSearchParams(lastQuery);
+      const moved = start.slice(0,10) < range.get("from") || start.slice(0,10) > range.get("to");
+      page = 1;
+      if (await loadRecords()) tell(moved
+        ? "已儲存變更。更正後的上班日期在目前查詢範圍外。"
+        : "已儲存出勤紀錄變更。");
+      else if (state) tell("已儲存變更。請重新查詢以查看最新紀錄。");
+    } else if (state) {
+      tell("已儲存變更。請重新連線以查看最新紀錄。");
+    }
+  } catch (e) {
+    if (editing === row) $("edit-error").textContent = e.message;
+    else tell(e.message,true);
+  } finally {
+    $("edit-cancel").disabled = $("edit-save").disabled = false;
+  }
+};
 async function loadRecords(reset = false) {
   const generation = ++recordVersion;
   const q = reset || !lastQuery ? dateQuery() : new URLSearchParams(lastQuery);
@@ -150,9 +218,10 @@ async function loadRecords(reset = false) {
     if (!result.rows.length) $("results").append(element("p","此日期範圍尚無打卡紀錄。","empty"));
     $("pager").hidden = page === 1 && !result.hasMore; $("prev").disabled = page === 1;
     $("next").disabled = !result.hasMore; $("page").textContent = "第 "+page+" 頁";
+    return true;
   } catch (e) {
-    if (generation === recordVersion) $("results").replaceChildren();
-    tell(e.message,true);
+    if (generation === recordVersion && state) { $("results").replaceChildren(); tell(e.message,true); }
+    return false;
   }
 }
 $("filters").onsubmit = (event) => { event.preventDefault(); loadRecords(true); };

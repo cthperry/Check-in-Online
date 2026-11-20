@@ -123,6 +123,49 @@ class AttendanceTests(unittest.TestCase):
         self.assertIsNone(all_book["補登紀錄"]["D2"].value)
         self.assertEqual(self.call("/api/records?from=2026-12-01&to=2026-12-01",cookie=a)["data"]["rows"],[])
 
+    def test_admin_edits_cross_midnight_and_audits(self):
+        staff, admin = [self.session(who).split(";")[0] for who in ("a", "manager")]
+        self.punch(staff)
+        self.now += 1200
+        query = "?from=2026-11-30&to=2026-11-30"
+        row = self.call("/api/records"+query,cookie=staff)["data"]["rows"][0]
+        edit = {"id":row["id"],"priorStart":row["started"],"priorEnd":None,
+                "start":"2026-11-30T23:50:15","end":"2026-12-01T00:02:10","reason":"=漏打下班"}
+        route = "/api/records/edit"
+        self.assertEqual(self.call(route,edit)["code"],401)
+        self.assertEqual(self.call(route,edit,staff)["code"],403)
+        self.assertEqual(self.call(route,edit,admin,"https://other.example.test")["code"],403)
+        self.assertEqual(self.call(route,{**edit,"reason":" "},admin)["code"],400)
+        self.assertEqual(self.call(route,{**edit,"start":"2026-11-31T00:00"},admin)["code"],400)
+        self.assertEqual(self.call(route,{**edit,"end":"2026-11-30T22:00"},admin)["code"],400)
+        self.assertEqual(self.call(route,{**edit,"end":"2026-12-01T00:16"},admin)["code"],400)
+        self.assertEqual(self.call(route,edit,admin)["code"],200)
+        self.assertEqual(self.call(route,edit,admin)["code"],409)
+        state = self.call("/api/state",cookie=staff)["data"]
+        self.assertIsNone(state["open"])
+        self.assertEqual(state["user"]["revision"],2)
+        self.assertEqual(self.punch(staff,revision=1)["code"],409)
+        data = self.call("/api/export"+query,cookie=staff)["data"]
+        book = load_workbook(io.BytesIO(data))
+        self.assertEqual(book.active["E2"].value, datetime(2026,11,30,23,50,15))
+        self.assertEqual(book.active["F2"].value, datetime(2026,12,1,0,2,10))
+        audit = book["補登紀錄"]
+        self.assertEqual(audit.max_row,2)
+        self.assertIsNone(audit["D2"].value)
+        self.assertEqual(audit["F2"].value,"=漏打下班")
+        self.assertEqual(audit["F2"].data_type,"s")
+        self.assertEqual(audit["G2"].value,"manager")
+        self.assertEqual(audit["I2"].value, datetime(2026,11,30,23,55))
+        self.assertEqual(audit["J2"].value, datetime(2026,11,30,23,50,15))
+
+        corrected = self.call("/api/records"+query,cookie=staff)["data"]["rows"][0]
+        self.assertEqual(self.punch(staff,revision=2)["code"],200)
+        self.assertEqual(self.call(route,{**edit,"priorStart":corrected["started"],
+                                          "priorEnd":corrected["ended"],"end":""},admin)["code"],409)
+        self.now += 60
+        self.assertEqual(self.call(route,{**edit,"priorStart":corrected["started"],
+                                          "priorEnd":corrected["ended"],"end":"2026-12-01T00:15:30"},admin)["code"],409)
+
     def test_validation_revocation_and_audit(self):
         a = self.session().split(";")[0]
         self.assertEqual(self.call("/api/logout",{},a,"https://other.example.test")["code"],403)

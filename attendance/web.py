@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .export import workbook
-from .store import Problem, current_staff, database, initialize, login, open_shift, punch, records, token_digest
+from .store import Problem, current_staff, database, edit_shift, initialize, login, open_shift, punch, records, token_digest
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 ASSETS = {"/":("index.html","text/html"), "/app.css":("app.css","text/css"),
@@ -65,7 +65,8 @@ def application(path, origin, clock=time.time):
             filename, mime = ASSETS[route]
             return 200, mime+"; charset=utf-8", (STATIC/filename).read_bytes(), []
         allowed = {"/api/login":"POST","/api/logout":"POST","/api/punch":"POST",
-                   "/api/state":"GET","/api/records":"GET","/api/export":"GET"}
+                   "/api/state":"GET","/api/records":"GET","/api/export":"GET",
+                   "/api/records/edit":"POST"}
         if route not in allowed:
             raise Problem(404, "找不到此頁面。")
         if method != allowed[route]:
@@ -90,12 +91,15 @@ def application(path, origin, clock=time.time):
                     raise Problem(400, "請重新送出打卡。")
                 stamp = punch(con,token,body.get("action"),body.get("revision"),body["key"],clock)
                 return json_response({"stamp":stamp})
+            if route == "/api/records/edit":
+                edit_shift(con,token,body,clock)
+                return json_response({"ok":True})
             # 同一個讀取快照包含員工狀態、班次與匯出附表。
             con.execute("BEGIN" if isinstance(con, sqlite3.Connection) else "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
             staff = current_staff(con,token,now)
             if route == "/api/state":
                 opened = open_shift(con,staff["id"])
-                last = con.execute("SELECT started,ended FROM shifts WHERE staff_id=? ORDER BY id DESC LIMIT 1",
+                last = con.execute("SELECT started,ended FROM shifts WHERE staff_id=? ORDER BY started DESC,id DESC LIMIT 1",
                                    (staff["id"],)).fetchone()
                 return json_response({"user":dict(staff),"open":dict(opened) if opened else None,
                                       "latest":dict(last) if last else None,"now":now})
