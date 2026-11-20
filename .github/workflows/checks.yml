@@ -1,0 +1,36 @@
+name: 出勤系統驗證
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m compileall -q app.py attendance tests
+      - run: node --check static/app.js
+      - run: python -m unittest discover -s tests -v
+      - name: 驗證正式服務啟動
+        run: |
+          python app.py serve &
+          trap 'kill $!' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8000/ -o /dev/null
+      - name: 驗證手機與桌面瀏覽器
+        run: |
+          npm install --prefix "$RUNNER_TEMP/attendance-qa" --no-audit --no-fund playwright-core@1.56.1
+          export NODE_PATH="$RUNNER_TEMP/attendance-qa/node_modules"
+          export CHROME_PATH="$(command -v google-chrome)"
+          export QA_SCREENSHOTS="$RUNNER_TEMP/attendance-screens"
+          node tests/browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: browser-views
+          path: ${{ runner.temp }}/attendance-screens
+          retention-days: 5
