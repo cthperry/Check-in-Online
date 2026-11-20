@@ -138,7 +138,7 @@ function recordCard(row) {
     cell.append(element("dt",title),element("dd",stampText(stamp))); times.append(cell);
   }
   box.append(head,times);
-  if (state?.user.role === "admin") {
+  if (state && (state.user.role === "admin" || state.user.account === row.account)) {
     const actions = element("div","","record-edit");
     const button = element("button","編輯","soft");
     button.type = "button";
@@ -176,7 +176,7 @@ $("edit-form").onsubmit = async event => {
   const reason = $("edit-reason").value.trim();
   $("edit-error").textContent = "";
   if (!reason) {
-    $("edit-error").textContent = "請填寫更正原因。";
+    $("edit-error").textContent = "請填寫備註說明。";
     $("edit-reason").focus();
     return;
   }

@@ -133,7 +133,8 @@ class AttendanceTests(unittest.TestCase):
                 "start":"2026-11-30T23:50:15","end":"2026-12-01T00:02:10","reason":"=漏打下班"}
         route = "/api/records/edit"
         self.assertEqual(self.call(route,edit)["code"],401)
-        self.assertEqual(self.call(route,edit,staff)["code"],403)
+        other_staff = self.session("b").split(";")[0]
+        self.assertEqual(self.call(route,edit,other_staff)["code"],404)
         self.assertEqual(self.call(route,edit,admin,"https://other.example.test")["code"],403)
         self.assertEqual(self.call(route,{**edit,"reason":" "},admin)["code"],400)
         self.assertEqual(self.call(route,{**edit,"start":"2026-11-31T00:00"},admin)["code"],400)
@@ -165,6 +166,26 @@ class AttendanceTests(unittest.TestCase):
         self.now += 60
         self.assertEqual(self.call(route,{**edit,"priorStart":corrected["started"],
                                           "priorEnd":corrected["ended"],"end":"2026-12-01T00:15:30"},admin)["code"],409)
+
+    def test_staff_can_edit_own_shift_with_note(self):
+        staff = self.session().split(";")[0]
+        self.punch(staff)
+        self.now += 600
+        self.punch(staff, "out", 1)
+        query = "?from=2026-11-30&to=2026-11-30"
+        row = self.call("/api/records"+query,cookie=staff)["data"]["rows"][0]
+        edit = {"id":row["id"],"priorStart":row["started"],"priorEnd":row["ended"],
+                "start":"2026-11-30T23:50","end":"2026-12-01T00:00","reason":"  修正上下班時間  "}
+        route = "/api/records/edit"
+        self.assertEqual(self.call(route,{**edit,"reason":" "},staff)["code"],400)
+        self.assertEqual(self.call(route,edit,staff)["code"],200)
+        edited = self.call("/api/records"+query,cookie=staff)["data"]["rows"][0]
+        self.assertTrue(edited["corrected"])
+        self.assertEqual(edited["started"], row["started"]-300)
+        self.assertEqual(edited["ended"], row["ended"]-300)
+        with database(self.path) as con:
+            self.assertEqual(tuple(con.execute("SELECT operator,reason FROM shift_edits").fetchone()),
+                             ("a","修正上下班時間"))
 
     def test_validation_revocation_and_audit(self):
         a = self.session().split(";")[0]

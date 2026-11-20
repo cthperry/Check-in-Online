@@ -36,7 +36,7 @@ def workbook(con, rows):
     sheet.title = "出勤明細"
     sheet.append(["班次編號","員工帳號","姓名","歸屬日期","上班時間","下班時間","在班時數","狀態"])
     changes = book.create_sheet("補登紀錄")
-    changes.append(["班次編號","員工帳號","姓名","原下班時間","更正後下班時間","原因","經手人","登錄時間","原上班時間","更正後上班時間"])
+    changes.append(["班次編號","員工帳號","姓名","原下班時間","更正後下班時間","備註說明","經手人","登錄時間","原上班時間","更正後上班時間"])
     change_row = 1
     for n,row in enumerate(rows,2):
         start = local_time(row["started"])

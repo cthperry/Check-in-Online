@@ -260,9 +260,7 @@ def edit_time(value):
 def edit_shift(con, token, body, clock=time.time):
     with transaction(con):
         now = int(clock())
-        admin = current_staff(con, token, now)
-        if admin["role"] != "admin":
-            raise Problem(403, "只有管理員可以編輯出勤紀錄。")
+        editor = current_staff(con, token, now)
         shift_id, prior_start, prior_end = (body.get(key) for key in ("id", "priorStart", "priorEnd"))
         reason = body.get("reason")
         if (type(shift_id) is not int or not 0 < shift_id <= 2147483647
@@ -270,12 +268,14 @@ def edit_shift(con, token, body, clock=time.time):
                 or (prior_end is not None and type(prior_end) is not int)
                 or not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 250
                 or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]", reason)):
-            raise Problem(400, "請確認班次資料並填寫 250 字以內的編輯原因。")
+            raise Problem(400, "請確認班次資料並填寫 250 字以內的備註說明。")
         start = edit_time(body.get("start"))
         end = None if body.get("end") == "" else edit_time(body.get("end"))
         if start < 0 or start > min(now, 2147483647) or (end is not None and not start <= end <= min(now, 2147483647)):
             raise Problem(400, "上下班時間須在現在或之前，且下班時間不得早於上班時間。")
-        row = con.execute("SELECT staff_id,started,ended FROM shifts WHERE id=?", (shift_id,)).fetchone()
+        row = con.execute("""SELECT staff_id,started,ended FROM shifts
+                             WHERE id=? AND (staff_id=? OR ?)""",
+                          (shift_id, editor["id"], editor["role"] == "admin")).fetchone()
         if row is None:
             raise Problem(404, "找不到這筆出勤紀錄。")
         if (row["started"], row["ended"]) != (prior_start, prior_end):
@@ -295,6 +295,6 @@ def edit_shift(con, token, body, clock=time.time):
         con.execute("""INSERT INTO shift_edits
             (shift_id,prior_start,prior_end,new_start,new_end,reason,operator,recorded)
             VALUES(?,?,?,?,?,?,?,?)""",
-                    (shift_id, prior_start, prior_end, start, end, reason.strip(), admin["account"], now))
+                    (shift_id, prior_start, prior_end, start, end, reason.strip(), editor["account"], now))
         con.execute("UPDATE shifts SET started=?, ended=? WHERE id=?", (start, end, shift_id))
         con.execute("UPDATE staff SET revision=revision+1 WHERE id=?", (row["staff_id"],))

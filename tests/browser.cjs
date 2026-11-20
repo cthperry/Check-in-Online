@@ -24,7 +24,7 @@ async function main() {
     const watch = (page) => page.on("pageerror",error=>errors.push(error.message));
     async function login(page) {
       await page.goto(url);
-      await page.getByLabel("員工帳號").fill("qa-admin");
+      await page.getByLabel("員工帳號").fill("qa-staff");
       await page.getByLabel("密碼",{exact:true}).fill(password);
       await page.getByRole("button",{name:"登入",exact:true}).click();
       await page.locator("#workspace").waitFor();
@@ -81,7 +81,7 @@ async function main() {
     assert(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth));
     await capture(phone,"mobile-edit.png");
     await dialog.getByLabel("下班時間（台灣）").fill("");
-    await dialog.getByLabel("更正原因").fill("測試版更正");
+    await dialog.getByLabel("備註說明").fill("測試版更正");
     await dialog.getByRole("button",{name:"儲存變更"}).click();
     await dialog.waitFor({state:"hidden"});
     await phone.getByText("已儲存出勤紀錄變更。",{exact:true}).waitFor();

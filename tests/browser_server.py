@@ -15,6 +15,6 @@ with TemporaryDirectory() as directory:
         origin = f"http://127.0.0.1:{server.server_port}"
         server.set_app(application(db,origin))
         with database(db) as con:
-            add_staff(con,"qa-admin","測試管理員","admin",os.environ["ATTENDANCE_TEST_PASSWORD"])
+            add_staff(con,"qa-staff","測試員工","staff",os.environ["ATTENDANCE_TEST_PASSWORD"])
         print(origin,flush=True)
         server.serve_forever()
